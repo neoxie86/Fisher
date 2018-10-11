@@ -2,10 +2,13 @@
 from flask import Flask
 from app.models.book import db
 from flask_login import LoginManager
+from flask_mail import Mail
+
 
 __time__ = '2018/9/6 10:38'
 
 login_manager = LoginManager()
+mail = Mail()
 
 
 def create_app():
@@ -19,6 +22,7 @@ def create_app():
     login_manager.init_app(app)
     login_manager.login_view = 'web.login'
     login_manager.login_message='请先登陆或注册'
+    mail.init_app(app)
     db.create_all(app=app)
     return app
 

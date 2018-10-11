@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 from app.libs.helper import is_isbn_or_key
+from app.libs.enums import PendingStatus
 from app.models.base import db,Base
 from sqlalchemy import Column,Integer,String,Boolean,Float
 from werkzeug.security import generate_password_hash,check_password_hash
@@ -8,7 +9,10 @@ from app import login_manager
 from app.spider.yushu_book import YuShuBook
 from app.models.gift import Gift
 from app.models.wish import Wish
-
+from app.models.drift import Drift
+from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from flask import current_app
+from math import floor
 
 __author__ = 'neo'
 __time__ = '2018/9/12 11:00'
@@ -34,6 +38,16 @@ class User(UserMixin,Base):
     def password(self,raw):
         self._password = generate_password_hash(raw)
 
+    def can_send_drift(self):
+        if self.beans < 1:
+            return False
+        success_gift_count = Gift.query.filter_by(
+            uid = self.id,launched = True).count()
+        success_receive_count = Drift.query.filter_by(
+            requester_id = self.id,pending = PendingStatus.success).count()
+        return True if floor(success_receive_count / 2) <= floor(success_gift_count) else False
+
+
     def check_password(self,raw):
         return check_password_hash(self._password,raw)
 
@@ -55,7 +69,38 @@ class User(UserMixin,Base):
             return True
         else:
             return False
-        
+
+    def generate_token(self,expiration=600):
+        s = Serializer(current_app.config['SECRET_KEY'],expiration)
+        return s.dumps({'id':self.id}).decode('utf-8')
+
+    @staticmethod
+    def reset_password(token,new_password):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token.encode('utf-8'))
+        except:
+            return  False
+        uid = data.get('id')
+        try:
+            user = User.query.get(uid)
+            user.password = new_password
+            db.session.add(user)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            raise e
+        return True
+
+    @property
+    def summary(self):
+        return dict(
+            nickname = self.nickname,
+            beans = self.beans,
+            email = self.email,
+            send_receive = str(self.send_counter) + '/' +str(self.receive_counter)
+        )
+
 @login_manager.user_loader
 def get_user(uid):
     return User.query.get(int(uid))
